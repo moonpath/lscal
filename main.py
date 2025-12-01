@@ -15,21 +15,8 @@ import dateutil
 from pathlib import Path
 from copy import deepcopy
 from datetime import datetime, timedelta, date
-from icalendar import Component, Calendar, Alarm, vDDDLists, vDatetime, vDuration, vRecur, vInt
-from typing import Callable, Protocol, runtime_checkable, cast
-
-
-@runtime_checkable
-class iDatetime(Protocol):
-    @property
-    def dt(self) -> datetime | date:
-        ...
-
-@runtime_checkable
-class iTimedelta(Protocol):
-    @property
-    def dt(self) -> timedelta | datetime:
-        ...
+from icalendar import Component, Calendar, Alarm, vDDDLists, vDDDTypes, vRecur, vInt
+from typing import Callable, cast
 
 
 def parse_ics_files(path: Path) -> Calendar:
@@ -147,13 +134,70 @@ def normalize_datetime(dt: date) -> datetime:
     Returns:
         Naive datetime object in local timezone
     """
-    local_tz = dateutil.tz.tzlocal()
     if isinstance(dt, datetime):
         if dt.tzinfo:
+            local_tz = dateutil.tz.tzlocal()
+            return dt.astimezone(local_tz).replace(tzinfo=None)
+        return dt
+    return datetime(dt.year, dt.month, dt.day)
+
+
+def extract_datetime(ddd: list[vDDDTypes] | vDDDTypes | None) -> datetime | None:
+    if not ddd:
+        return None
+
+    if isinstance(ddd, list):
+        ddd = ddd[0]
+
+    dt = ddd.dt
+
+    if isinstance(dt, datetime):
+        if dt.tzinfo:
+            local_tz = dateutil.tz.tzlocal()
+            return dt.astimezone(local_tz).replace(tzinfo=None)
+        return dt
+
+    if isinstance(dt, date):
+        return datetime(dt.year, dt.month, dt.day)
+
+    return None
+
+
+def extract_trigger(ddd: list[vDDDTypes] | vDDDTypes | None) -> timedelta | datetime | None:
+    if not ddd:
+        return None
+
+    if isinstance(ddd, list):
+        ddd = ddd[0]
+
+    dt = ddd.dt
+
+    if isinstance(dt, timedelta):
+        return dt
+
+    if isinstance(dt, datetime):
+        if dt.tzinfo:
+            local_tz = dateutil.tz.tzlocal()
             return dt.astimezone(local_tz).replace(tzinfo=None)
         else:
             return dt
-    return datetime(dt.year, dt.month, dt.day)
+
+    return None
+
+
+def extract_duration(ddd: list[vDDDTypes] | vDDDTypes | None) -> timedelta | None:
+    if not ddd:
+        return None
+
+    if isinstance(ddd, list):
+        ddd = ddd[0]
+
+    dt = ddd.dt
+
+    if isinstance(dt, timedelta):
+        return dt
+
+    return None
 
 
 def adjust_time_range_by_alarms(
@@ -191,11 +235,9 @@ def adjust_time_range_by_alarms(
             if alarm.name != 'VALARM':
                 continue
                 
-            trigger: iTimedelta | None = alarm.get('TRIGGER')
-            if not trigger:
+            trigger_value = extract_trigger(alarm.get('TRIGGER'))
+            if trigger_value is None:
                 continue
-            
-            trigger_value = trigger.dt
             
             if isinstance(trigger_value, timedelta):
                 if trigger_value < timedelta(0):
@@ -204,20 +246,16 @@ def adjust_time_range_by_alarms(
                     candidate_starts.append(base_start - trigger_value)
 
             elif isinstance(trigger_value, date):
-                trigger_dt = normalize_datetime(trigger_value)
-                
-                if base_start <= trigger_dt <= base_end:
-                    dtstart_prop: iDatetime | None = sub.get('DTSTART')
-                    due_prop: iDatetime | None = sub.get('DUE') # Only for VTODO
+                if base_start <= trigger_value <= base_end:
+                    dtstart_value = extract_datetime(sub.get('DTSTART'))
+                    due_value = extract_datetime(sub.get('DUE')) # Only for VTODO
 
-                    if dtstart_prop: 
-                        dt = normalize_datetime(dtstart_prop.dt)
-                        candidate_starts.append(dt)
-                        candidate_ends.append(dt)
-                    if due_prop:
-                        dt = normalize_datetime(due_prop.dt)
-                        candidate_starts.append(dt)
-                        candidate_ends.append(dt)
+                    if dtstart_value: 
+                        candidate_starts.append(dtstart_value)
+                        candidate_ends.append(dtstart_value)
+                    if due_value:
+                        candidate_starts.append(due_value)
+                        candidate_ends.append(due_value)
 
     return min(candidate_starts), max(candidate_ends)
 
@@ -242,17 +280,14 @@ def get_occurrences(
     start_time = normalize_datetime(start_time)
     end_time = normalize_datetime(end_time)
     
-    dtstart_prop: iDatetime | None = component.get('DTSTART')
-    if not dtstart_prop:
-        due_prop: iDatetime | None = component.get('DUE')
-        if due_prop:
-            due_dt = normalize_datetime(due_prop.dt)
-            if start_time <= due_dt <= end_time:
-                return [due_dt]
+    dtstart_value = extract_datetime(component.get('DTSTART'))
+    if not dtstart_value:
+        due_value = extract_datetime(component.get('DUE'))
+        if due_value:
+            if start_time <= due_value <= end_time:
+                return [due_value]
         return []
     
-    dtstart_dt = normalize_datetime(dtstart_prop.dt)
-
     rules = dateutil.rrule.rruleset()
 
     has_rrule = False
@@ -267,7 +302,7 @@ def get_occurrences(
                 rrule_str = prop.to_ical().decode('utf-8')
                 rule = dateutil.rrule.rrulestr(
                     s=rrule_str, 
-                    dtstart=dtstart_dt,
+                    dtstart=dtstart_value,
                     forceset=False,
                     ignoretz=True
                 )
@@ -278,7 +313,7 @@ def get_occurrences(
                 continue
 
     if not has_rrule:
-        rules.rdate(dtstart_dt)
+        rules.rdate(dtstart_value)
 
     def extract_dates(props: vDDDLists | list[vDDDLists]) -> list[datetime]:
         extracted = []
@@ -328,27 +363,27 @@ def calculate_alarm_trigger(component: Component):
     trigger_value = timedelta(0) # Default value: 0 interval
     related = 'START'            # Default value: based on start time
 
-    if alarm:
-        trigger_prop: vDuration | vDatetime | None = alarm.get('TRIGGER')
-        if trigger_prop:
-            trigger_value = trigger_prop.dt
-            related = trigger_prop.params.get('RELATED', 'START')
+    if not alarm:
+        return None
+
+    trigger_prop: vDDDTypes = alarm.get('TRIGGER')
+
+    trigger_value = extract_trigger(trigger_prop)
+    if trigger_value is None:
+        return None
+
+    related = trigger_prop.params.get('RELATED', 'START')
 
     if isinstance(trigger_value, datetime):
-        return normalize_datetime(trigger_value)
+        return trigger_value
 
     elif isinstance(trigger_value, timedelta):
         base_time = None
 
-        dtstart_prop: iDatetime | None = component.get('DTSTART')
-        dtend_prop: iDatetime | None = component.get('DTEND')
-        due_prop: iDatetime | None = component.get('DUE') # Only used for VTODO
-        duration_prop: vDuration | None = component.get('DURATION')
-
-        dtstart_val = normalize_datetime(dtstart_prop.dt) if dtstart_prop else None
-        dtend_val = normalize_datetime(dtend_prop.dt) if dtend_prop else None
-        due_val = normalize_datetime(due_prop.dt) if due_prop else None
-        duration_val = duration_prop.dt if duration_prop else None
+        dtstart_val = extract_datetime(component.get('DTSTART'))
+        dtend_val = extract_datetime(component.get('DTEND'))
+        due_val = extract_datetime(component.get('DUE')) # Only used for VTODO
+        duration_val = extract_duration(component.get('DURATION'))
 
         if related == 'START':
             if dtstart_val:
@@ -435,20 +470,13 @@ def filter_and_sort_components(
 
     for comp in components:
         trigger_val = comp.get('X-ALARM-TRIGGER')
-        if not trigger_val:
+        if trigger_val is None:
             continue
 
-        trigger_dt = None
-
-        if isinstance(trigger_val, datetime):
-            trigger_dt = trigger_val
-        elif hasattr(trigger_val, 'dt'):
-            trigger_dt = trigger_val.dt
-        else:
-            try:
-                trigger_dt = dateutil.parser.parse(str(trigger_val))
-            except (ValueError, TypeError):
-                continue
+        try:
+            trigger_dt = dateutil.parser.parse(str(trigger_val))
+        except Exception:
+            continue
 
         trigger_dt = normalize_datetime(trigger_dt)
 
@@ -466,14 +494,9 @@ def filter_and_sort_components(
         sequence_prop = comp.get('SEQUENCE', vInt(0))
         sequence_val = int(sequence_prop)
 
-        dtstart_prop: iDatetime | None = comp.get('DTSTART')
-        dtstart_val = normalize_datetime(dtstart_prop.dt) if dtstart_prop and hasattr(dtstart_prop, 'dt') else None
-
-        due_prop: iDatetime | None = comp.get('DUE')
-        due_val = normalize_datetime(due_prop.dt) if due_prop and hasattr(due_prop, 'dt') else None
-
-        rid_prop: iDatetime | None = comp.get('RECURRENCE-ID')
-        rid_val = normalize_datetime(rid_prop.dt) if rid_prop and hasattr(rid_prop, 'dt') else None
+        dtstart_val = extract_datetime(comp.get('DTSTART'))
+        due_val = extract_datetime(comp.get('DUE'))
+        rid_val = extract_datetime(comp.get('RECURRENCE-ID'))
             
         key = (uid, dtstart_val, due_val, rid_val, sequence_val)
         
@@ -513,10 +536,9 @@ def filter_outdated_and_overridden_components(
             continue
         
         sequence_prop = component.get('SEQUENCE', vInt(0))
-        sequence_val = int(sequence_prop)
+        sequence_val = sequence_prop if isinstance(sequence_prop, vInt) else vInt(0)
         
-        rid_prop: iDatetime | None = component.get('RECURRENCE-ID')
-        rid_val = normalize_datetime(rid_prop.dt) if rid_prop else None
+        rid_val = extract_datetime(component.get('RECURRENCE-ID'))
 
         key = (uid, rid_val)
 
@@ -535,10 +557,9 @@ def filter_outdated_and_overridden_components(
             continue
         
         sub_sequence_prop = comp.get('SEQUENCE', vInt(0))
-        sub_sequence_val = int(sub_sequence_prop)
+        sub_sequence_val = sub_sequence_prop if isinstance(sub_sequence_prop, vInt) else vInt(0)
         
-        sub_rid_prop: iDatetime | None = comp.get('RECURRENCE-ID')
-        sub_rid_val = normalize_datetime(sub_rid_prop.dt) if sub_rid_prop else None
+        sub_rid_val = extract_datetime(comp.get('RECURRENCE-ID'))
 
         check_key = (sub_uid, sub_rid_val)
         
@@ -548,11 +569,9 @@ def filter_outdated_and_overridden_components(
                 continue
 
         if sub_rid_val is None:
-            dt_prop: iDatetime | None = comp.get('DTSTART') or comp.get('DUE')
+            instance_time = extract_datetime(comp.get('DTSTART') or comp.get('DUE'))
             
-            if dt_prop is not None:
-                instance_time = normalize_datetime(dt_prop.dt)
-                
+            if instance_time:
                 potential_exception_key = (sub_uid, instance_time)
                 
                 if potential_exception_key in revision_map:
@@ -602,11 +621,10 @@ def search_calendar_schedule(
         component.pop('EXDATE')
         
         duration = None
-        if 'DTEND' in component and 'DTSTART' in component:
-            old_start = component.decoded('dtstart', None)
-            old_end = component.decoded('dtend', None)
-            if isinstance(old_start, date) and isinstance(old_end, date):
-                duration = normalize_datetime(old_end) - normalize_datetime(old_start)
+        old_start = extract_datetime(component.get('DTSTART'))
+        old_end = extract_datetime(component.get('DTEND'))
+        if old_start and old_end:
+            duration = old_end - old_start
 
         component.pop('DTSTART')
         component.pop('DTEND')
@@ -620,7 +638,7 @@ def search_calendar_schedule(
             expand_alarm_components = expand_alarm(base_component)
             for expand_alarm_component in expand_alarm_components:
                 trigger_time = calculate_alarm_trigger(expand_alarm_component)
-                if trigger_time:
+                if trigger_time is not None:
                     expand_alarm_component.add('X-ALARM-TRIGGER', trigger_time)
                 components.append(expand_alarm_component)
     
