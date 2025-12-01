@@ -2,7 +2,7 @@
 Formatted display handler
 """
 import dateutil
-from icalendar import Calendar, vDDDTypes, vInt
+from icalendar import Calendar, vDDDTypes
 
 
 class Handler:

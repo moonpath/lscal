@@ -1,5 +1,5 @@
 """
-Webhook handler
+Ntfy handler
 """
 import requests
 import dateutil
@@ -9,19 +9,19 @@ from typing import Any
 
 
 class Handler:
-    """Handler class for sending to Webhook"""
+    """Handler class for sending to Ntfy webhook"""
     
     def __init__(
         self,
-        url: str = "https://ntfy.sh/calendar_push",
+        url: str = "https://ntfy.sh/calendar",
         headers: dict | None = None,
         individual: bool = False,
     ):
         """
-        Initialize Webhook handler
+        Initialize Ntfy webhook handler
         
         Args:
-            url: Webhook URL
+            url: Ntfy webhook URL
             headers: Custom headers for the request
             individual: Whether to send each event individually. False (default) sends summary message, True sends each event separately
         """
@@ -31,7 +31,7 @@ class Handler:
     
     def __call__(self, calendar: Calendar) -> None:
         """
-        Send event information to specified Webhook
+        Send event information to specified Ntfy webhook
         
         Args:
             calendar: icalendar Calendar object
