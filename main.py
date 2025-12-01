@@ -180,47 +180,52 @@ def adjust_time_range_by_alarms(
     candidate_starts: list[datetime] = [base_start]
     candidate_ends: list[datetime] = [base_end]
 
-    for item in component.walk():
-        if item.name not in ('VEVENT', 'VTODO'):
+    for sub in component.walk():
+        if sub.name not in ('VEVENT', 'VTODO'):
             continue
 
-        if not hasattr(item, 'subcomponents'):
+        if not hasattr(sub, 'subcomponents'):
             continue
 
-        for sub in item.subcomponents:
-            if sub.name != 'VALARM':
+        for alarm in sub.subcomponents:
+            if alarm.name != 'VALARM':
                 continue
                 
-            trigger: iTimedelta | None = sub.get('TRIGGER')
+            trigger: iTimedelta | None = alarm.get('TRIGGER')
             if not trigger:
                 continue
             
             trigger_value = trigger.dt
             
             if isinstance(trigger_value, timedelta):
-                adjustment = -trigger_value
-                
-                if adjustment > timedelta(0):
-                    candidate_ends.append(base_end + adjustment)
+                if trigger_value < timedelta(0):
+                    candidate_ends.append(base_end - trigger_value)
                 else:
-                    candidate_starts.append(base_start + adjustment)
+                    candidate_starts.append(base_start - trigger_value)
 
             elif isinstance(trigger_value, date):
                 trigger_dt = normalize_datetime(trigger_value)
-                item_dtstart_prop: iDatetime | None = item.get('DTSTART')
                 
-                if item_dtstart_prop and base_start <= trigger_dt <= base_end:
-                        item_dtstart = normalize_datetime(item_dtstart_prop.dt)
-                        candidate_starts.append(item_dtstart)
-                        candidate_ends.append(item_dtstart)
+                if base_start <= trigger_dt <= base_end:
+                    dtstart_prop: iDatetime | None = sub.get('DTSTART')
+                    due_prop: iDatetime | None = sub.get('DUE') # Only for VTODO
+
+                    if dtstart_prop: 
+                        dt = normalize_datetime(dtstart_prop.dt)
+                        candidate_starts.append(dt)
+                        candidate_ends.append(dt)
+                    if due_prop:
+                        dt = normalize_datetime(due_prop.dt)
+                        candidate_starts.append(dt)
+                        candidate_ends.append(dt)
 
     return min(candidate_starts), max(candidate_ends)
 
 
 def get_occurrences(
     component: Component,
-    start_range: datetime,
-    end_range: datetime
+    start_time: datetime,
+    end_time: datetime
 ) -> list[datetime]:
     """Get all occurrences of an event within a time range.
     
@@ -234,19 +239,19 @@ def get_occurrences(
     Returns:
         List of datetime objects for each occurrence
     """
-    start_range = normalize_datetime(start_range)
-    end_range = normalize_datetime(end_range)
+    start_time = normalize_datetime(start_time)
+    end_time = normalize_datetime(end_time)
     
     dtstart_prop: iDatetime | None = component.get('DTSTART')
     if not dtstart_prop:
         due_prop: iDatetime | None = component.get('DUE')
         if due_prop:
             due_dt = normalize_datetime(due_prop.dt)
-            if start_range <= due_dt <= end_range:
+            if start_time <= due_dt <= end_time:
                 return [due_dt]
         return []
     
-    start_dt_native = normalize_datetime(dtstart_prop.dt)
+    dtstart_dt = normalize_datetime(dtstart_prop.dt)
 
     rules = dateutil.rrule.rruleset()
 
@@ -262,7 +267,7 @@ def get_occurrences(
                 rrule_str = prop.to_ical().decode('utf-8')
                 rule = dateutil.rrule.rrulestr(
                     f"RRULE:{rrule_str}", 
-                    dtstart=start_dt_native,
+                    dtstart=dtstart_dt,
                     forceset=False,
                     ignoretz=True
                 )
@@ -275,7 +280,7 @@ def get_occurrences(
                 continue
 
     if not has_rrule:
-        rules.rdate(start_dt_native)
+        rules.rdate(dtstart_dt)
 
     def extract_dates(prop_item) -> list[datetime]:
         extracted = []
@@ -307,7 +312,7 @@ def get_occurrences(
                 rules.exdate(dt)
 
     try:
-        occurrences = list(rules.between(start_range, end_range, inc=True))
+        occurrences = list(rules.between(start_time, end_time, inc=True))
     except Exception:
         return []
         
