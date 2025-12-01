@@ -1,8 +1,8 @@
 services:
   calendar:
-    image: moonpath/calendar:ubuntu-24.04
-    container_name: calendar
-    hostname: calendar
+    image: moonpath/lscal:ubuntu-24.04
+    container_name: lscal
+    hostname: lscal
     restart: unless-stopped
     stdin_open: true
     tty: true
