@@ -15,8 +15,8 @@ import dateutil
 from pathlib import Path
 from copy import deepcopy
 from datetime import datetime, timedelta, date
-from icalendar import Component, Calendar, Alarm, vDatetime, vDuration, vRecur, vInt
-from typing import Callable, Protocol, runtime_checkable
+from icalendar import Component, Calendar, Alarm, vDDDLists, vDatetime, vDuration, vRecur, vInt
+from typing import Callable, Protocol, runtime_checkable, cast
 
 
 @runtime_checkable
@@ -271,43 +271,35 @@ def get_occurrences(
                     forceset=False,
                     ignoretz=True
                 )
-                if isinstance(rule, dateutil.rrule.rrule):
-                    rules.rrule(rule)
-                    has_rrule = True
+                rule = cast(dateutil.rrule.rrule, rule)
+                rules.rrule(rule)
+                has_rrule = True
             except ValueError:
                 continue
 
     if not has_rrule:
         rules.rdate(dtstart_dt)
 
-    def extract_dates(prop_item) -> list[datetime]:
+    def extract_dates(props: vDDDLists | list[vDDDLists]) -> list[datetime]:
         extracted = []
-        if hasattr(prop_item, 'dts'):
-            for dt_obj in prop_item.dts:
-                extracted.append(normalize_datetime(dt_obj.dt))
-        elif hasattr(prop_item, 'dt'):
-            extracted.append(normalize_datetime(prop_item.dt))
-        elif isinstance(prop_item, date):
-            extracted.append(normalize_datetime(prop_item))
+        if not isinstance(props, list):
+            props = [props]
+        for prop in props:
+            for ddd in prop.dts:
+                dt = cast(date, ddd.dt)
+                dt = normalize_datetime(dt)
+                extracted.append(dt)
         return extracted
 
-    if 'RDATE' in component:
-        rdates = component['RDATE']
-        if not isinstance(rdates, list):
-            rdates = [rdates]
-        
-        for rdate_item in rdates:
-            for dt in extract_dates(rdate_item):
-                rules.rdate(dt)
+    rdates = component['RDATE']
+    if rdates:
+        for rdate in extract_dates(rdates):
+            rules.rdate(rdate)
 
-    if 'EXDATE' in component:
-        exdates = component['EXDATE']
-        if not isinstance(exdates, list):
-            exdates = [exdates]
-            
-        for exdate_item in exdates:
-            for dt in extract_dates(exdate_item):
-                rules.exdate(dt)
+    exdates = component['EXDATE']
+    if exdates:
+        for exdate in extract_dates(exdates):
+            rules.exdate(exdate)
 
     try:
         occurrences = list(rules.between(start_time, end_time, inc=True))
