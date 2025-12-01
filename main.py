@@ -191,11 +191,11 @@ def adjust_time_range_by_alarms(
             if sub.name != 'VALARM':
                 continue
                 
-            trigger = sub.get('TRIGGER')
-            if trigger is None:
+            trigger: iTimedelta | None = sub.get('TRIGGER')
+            if not trigger:
                 continue
             
-            trigger_value = trigger.dt if hasattr(trigger, 'dt') else trigger
+            trigger_value = trigger.dt
             
             if isinstance(trigger_value, timedelta):
                 adjustment = -trigger_value
@@ -466,18 +466,25 @@ def filter_and_sort_components(
     seen_keys = set()
 
     for _, comp in candidates:
-        uid_prop = comp.get('UID')
-        uid = str(uid_prop) if uid_prop else None
+        uid = comp.get('UID')
+
+        sequence_prop = comp.get('SEQUENCE', vInt(0))
+        sequence_val = int(sequence_prop)
 
         dtstart_prop: iDatetime | None = comp.get('DTSTART')
         dtstart_val = normalize_datetime(dtstart_prop.dt) if dtstart_prop and hasattr(dtstart_prop, 'dt') else None
+
+        due_prop: iDatetime | None = comp.get('DUE')
+        due_val = normalize_datetime(due_prop.dt) if due_prop and hasattr(due_prop, 'dt') else None
+
+        rid_prop: iDatetime | None = comp.get('RECURRENCE-ID')
+        rid_val = normalize_datetime(rid_prop.dt) if rid_prop and hasattr(rid_prop, 'dt') else None
             
-        if uid:
-            key = (uid, dtstart_val)
-            
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
+        key = (uid, dtstart_val, due_val, rid_val, sequence_val)
+        
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         
         unique_components.append(comp)
 
@@ -510,7 +517,8 @@ def filter_outdated_and_overridden_components(
         if uid is None:
             continue
         
-        sequence = component.get('SEQUENCE', vInt(0))
+        sequence_prop = component.get('SEQUENCE', vInt(0))
+        sequence_val = int(sequence_prop)
         
         rid_prop: iDatetime | None = component.get('RECURRENCE-ID')
         rid_val = normalize_datetime(rid_prop.dt) if rid_prop else None
@@ -518,10 +526,10 @@ def filter_outdated_and_overridden_components(
         key = (uid, rid_val)
 
         if key not in revision_map:
-            revision_map[key] = sequence
+            revision_map[key] = sequence_val
         else:
-            if sequence > revision_map[key]:
-                revision_map[key] = sequence
+            if sequence_val > revision_map[key]:
+                revision_map[key] = sequence_val
 
     cleaned_list: list[Component] = []
 
@@ -531,7 +539,8 @@ def filter_outdated_and_overridden_components(
             cleaned_list.append(comp)
             continue
         
-        sub_sequence = comp.get('SEQUENCE', vInt(0))
+        sub_sequence_prop = comp.get('SEQUENCE', vInt(0))
+        sub_sequence_val = int(sub_sequence_prop)
         
         sub_rid_prop: iDatetime | None = comp.get('RECURRENCE-ID')
         sub_rid_val = normalize_datetime(sub_rid_prop.dt) if sub_rid_prop else None
@@ -540,7 +549,7 @@ def filter_outdated_and_overridden_components(
         
         if check_key in revision_map:
             max_existing_seq = revision_map[check_key]
-            if max_existing_seq > sub_sequence:
+            if max_existing_seq > sub_sequence_val:
                 continue
 
         if sub_rid_val is None:
@@ -579,13 +588,14 @@ def search_calendar_schedule(
     """
     start_time = start_time or datetime.now(dateutil.tz.tzlocal())
     end_time = end_time or (start_time + timedelta(days=7))
-    adjust_start_time, adjust_end_time = adjust_time_range_by_alarms(cal, start_time, end_time)
 
     components = []
 
     for component in cal.subcomponents:
         component: Component = deepcopy(component)
         
+        adjust_start_time, adjust_end_time = adjust_time_range_by_alarms(component, start_time, end_time)
+
         dtstarts = get_occurrences(
             component,
             adjust_start_time,
