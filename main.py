@@ -266,16 +266,14 @@ def get_occurrences(
             try:
                 rrule_str = prop.to_ical().decode('utf-8')
                 rule = dateutil.rrule.rrulestr(
-                    f"RRULE:{rrule_str}", 
+                    s=rrule_str, 
                     dtstart=dtstart_dt,
                     forceset=False,
                     ignoretz=True
                 )
                 if isinstance(rule, dateutil.rrule.rrule):
                     rules.rrule(rule)
-                elif isinstance(rule, dateutil.rrule.rruleset):
-                    pass
-                has_rrule = True
+                    has_rrule = True
             except ValueError:
                 continue
 
