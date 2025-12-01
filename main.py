@@ -15,7 +15,7 @@ import dateutil
 from pathlib import Path
 from copy import deepcopy
 from datetime import datetime, timedelta, date
-from icalendar import Component, Calendar, Alarm, vDatetime, vDuration, vRecur
+from icalendar import Component, Calendar, Alarm, vDatetime, vDuration, vRecur, vInt
 from typing import Callable, Protocol, runtime_checkable
 
 
@@ -484,6 +484,68 @@ def filter_and_sort_components(
     return unique_components
 
 
+def filter_outdated_and_overridden_components(
+    original_cal: Calendar,
+    subset_list: list[Component]
+) -> list[Component]:
+    """Filter out outdated and overridden components from a subset list.
+    
+    Args:
+        original_cal: The original calendar containing all components
+        subset_list: A subset list of components to be filtered
+        
+    Returns:
+        A filtered list of components with outdated and overridden ones removed
+    """
+    uid_max_sequence_map: dict[str, int] = {}
+    uid_recurrence_ids_map: dict[str, set] = {}
+
+    for component in original_cal.walk():
+        uid = component.get('UID')
+
+        if uid is None:
+            continue
+
+        sequence = component.get('SEQUENCE', vInt(0))
+
+        if uid not in uid_max_sequence_map:
+            uid_max_sequence_map[uid] = sequence
+        else:
+            if sequence > uid_max_sequence_map[uid]:
+                uid_max_sequence_map[uid] = sequence
+        
+        rid_prop: iDatetime | None = component.get('RECURRENCE-ID')
+        if rid_prop is not None:
+            if uid not in uid_recurrence_ids_map:
+                uid_recurrence_ids_map[uid] = set()
+            uid_recurrence_ids_map[uid].add(normalize_datetime(rid_prop.dt))
+
+    cleaned_list: list[Component] = []
+
+    for comp in subset_list:
+        sub_uid = comp.get('UID')
+        if sub_uid is None:
+            cleaned_list.append(comp)
+            continue
+
+        sub_sequence = comp.get('SEQUENCE', vInt(0))
+        
+        if sub_uid in uid_max_sequence_map:
+            max_existing_seq = uid_max_sequence_map[sub_uid]
+            if max_existing_seq > sub_sequence:
+                continue
+
+        sub_prop: iDatetime | None = comp.get('DTSTART') or comp.get('DUE')
+
+        if sub_uid in uid_recurrence_ids_map and sub_prop is not None:
+            if normalize_datetime(sub_prop.dt) in uid_recurrence_ids_map[sub_uid]:
+                continue
+        
+        cleaned_list.append(comp)
+
+    return cleaned_list
+
+
 def search_calendar_schedule(
     cal: Calendar,
     start_time: datetime | None = None,
@@ -545,6 +607,7 @@ def search_calendar_schedule(
                 components.append(expand_alarm_component)
     
     components = filter_and_sort_components(components, start_time, end_time)
+    components = filter_outdated_and_overridden_components(cal, components)
 
     new_cal = Calendar()
     new_cal.add('VERSION', cal.get('VERSION', '2.0'))
