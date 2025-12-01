@@ -1,0 +1,28 @@
+services:
+  calendar:
+    image: moonpath/calendar:ubuntu-24.04
+    container_name: calendar
+    hostname: calendar
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    init: true
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: "ubuntu:24.04"
+    environment:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      TZ: Asia/Shanghai
+    volumes:
+      - ./ics.d:/app/ics.d
+      - ./cron.d:/app/cron.d
+    network_mode: bridge
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    deploy:
+      resources:
+        limits:
+          memory: 300m
