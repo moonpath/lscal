@@ -1,0 +1,28 @@
+services:
+  calendar:
+    image: moonpath/lscal:python-alpine
+    container_name: lscal
+    hostname: lscal
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    init: true
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: "python:alpine"
+    environment:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      TZ: Asia/Shanghai
+    volumes:
+      - ./ics:/app/ics
+      - ./crontabs:/app/crontabs
+    network_mode: bridge
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    deploy:
+      resources:
+        limits:
+          memory: 300m
