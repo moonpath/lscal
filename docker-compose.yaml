@@ -12,6 +12,9 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: "python:alpine"
+      tags:
+        - "moonpath/lscal:latest"
+        - "moonpath/lscal:python-alpine"
     environment:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8

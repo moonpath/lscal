@@ -26,7 +26,7 @@ exec "$@"
 EOF
 
 HEALTHCHECK --interval=1m --timeout=5s --start-period=10s --retries=3 \
-  CMD true || exit 1
+    CMD pidof crond > /dev/null
 
 WORKDIR "/app"
 
