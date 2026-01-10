@@ -10,8 +10,8 @@ RUN pip install --no-cache-dir \
     python-dateutil \
     requests
 
-COPY handlers/ /app/handlers/
-COPY main.py /app/main.py
+COPY src/lscal/handlers/ /app/handlers/
+COPY src/lscal/lscal.py /app/lscal.py
 
 RUN cat <<'EOF' > /usr/local/bin/docker-entrypoint && chmod 755 /usr/local/bin/docker-entrypoint
 #!/bin/sh

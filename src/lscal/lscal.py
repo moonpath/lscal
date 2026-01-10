@@ -884,26 +884,26 @@ def main():
     if not args.path and sys.stdin.isatty():
         parser.print_help()
         sys.exit(1)
-    calendar = load_and_merge_calendars(args.path)
-    
-    calendar = extract_scheduled_events(
-        calendar,
-        start_time=start_time,
-        end_time=end_time
-    )
-    
-    logging.info(f"Time Range: {start_time} to {end_time}")
 
-    handler(calendar)
-    return
-
-
-if __name__ == "__main__":
     try:
-        main()
+        calendar = load_and_merge_calendars(args.path)
+        
+        calendar = extract_scheduled_events(
+            calendar,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        logging.info(f"Time Range: {start_time} to {end_time}")
+
+        handler(calendar)
     except KeyboardInterrupt:
         print(file=sys.stderr)
         sys.exit(130)
     except BrokenPipeError:
         sys.stderr = open(os.devnull, 'w')
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
