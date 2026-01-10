@@ -1,6 +1,6 @@
 services:
   calendar:
-    image: moonpath/lscal:python-alpine
+    image: moonpath/lscal:latest
     container_name: lscal
     hostname: lscal
     restart: unless-stopped
@@ -14,7 +14,6 @@ services:
         BASE_IMAGE: "python:alpine"
       tags:
         - "moonpath/lscal:latest"
-        - "moonpath/lscal:python-alpine"
     environment:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
